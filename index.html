@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CRM 해지방어/재구독 대시보드</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+  <script src="config.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Noto Sans KR', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f1f5f9;
+      color: #1e293b;
+      min-height: 100vh;
+      font-size: 14px;
+    }
+
+    /* ── Loading overlay ─────────────────────────────────────────────────── */
+    #loading-overlay {
+      position: fixed; inset: 0;
+      background: rgba(255, 255, 255, 0.92);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 14px; z-index: 9999;
+    }
+    #loading-overlay.hidden { display: none; }
+    .spinner {
+      width: 44px; height: 44px;
+      border: 4px solid #e2e8f0;
+      border-top-color: #ff153c;
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-text { color: #64748b; font-size: 13px; }
+
+    /* ── Error banner ────────────────────────────────────────────────────── */
+    #error-banner {
+      display: none;
+      position: sticky; top: 0; z-index: 200;
+      background: #fef2f2;
+      border-bottom: 2px solid #fca5a5;
+      color: #b91c1c;
+      padding: 10px 20px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    #error-banner.visible { display: block; }
+
+    /* ── Site header ─────────────────────────────────────────────────────── */
+    .site-header {
+      background: linear-gradient(135deg, #850010 0%, #ff153c 100%);
+      color: white;
+      padding: 20px 28px 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .site-header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+    .site-header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+    .site-subtitle {
+      font-size: 12px;
+      color: rgba(255,255,255,0.65);
+      margin-top: 2px;
+    }
+
+    /* ── Tab navigation ──────────────────────────────────────────────────── */
+    .tab-nav { display: flex; gap: 4px; }
+    .tab-btn {
+      padding: 9px 22px;
+      border: none;
+      background: rgba(255,255,255,0.12);
+      color: rgba(255,255,255,0.75);
+      border-radius: 8px 8px 0 0;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s, color 0.15s;
+    }
+    .tab-btn:hover { background: rgba(255,255,255,0.22); color: white; }
+    .tab-btn.active {
+      background: #f1f5f9;
+      color: #850010;
+      font-weight: 700;
+    }
+
+    /* ── Main content ────────────────────────────────────────────────────── */
+    #main-content {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 24px 24px 40px;
+    }
+
+    /* ── Dashboard panel ─────────────────────────────────────────────────── */
+    .dashboard-panel { display: none; }
+    .dashboard-panel.active { display: block; }
+
+    .panel-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .panel-criteria {
+      font-size: 13px;
+      color: #475569;
+    }
+    .panel-refresh {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .refresh-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #10b981;
+      flex-shrink: 0;
+    }
+
+    /* ── Cards ───────────────────────────────────────────────────────────── */
+    .card {
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    }
+    .card-header {
+      padding: 15px 20px 12px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .card-header h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: #334155;
+    }
+    .card-body { padding: 20px; }
+    .card + .card { margin-top: 18px; }
+
+    /* ── Gauge grid ──────────────────────────────────────────────────────── */
+    .gauge-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+    }
+    @media (max-width: 1024px) { .gauge-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 520px)  { .gauge-grid { grid-template-columns: 1fr 1fr; } }
+
+    .gauge-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 16px 12px 10px;
+    }
+    /* Chart.js will respect aspectRatio: 2 — canvas fills container width */
+    .gauge-wrap canvas { width: 100% !important; }
+    .gauge-lbl {
+      margin-top: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      color: #64748b;
+      text-align: center;
+    }
+
+    /* ── Chart cards ─────────────────────────────────────────────────────── */
+    .chart-body {
+      padding: 16px 20px 20px;
+      position: relative;
+      height: 300px;
+    }
+
+    /* ── MTD table ───────────────────────────────────────────────────────── */
+    .tbl-wrap { overflow-x: auto; }
+    .mtd-tbl {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .mtd-tbl th {
+      background: #f8fafc;
+      color: #475569;
+      font-weight: 600;
+      padding: 10px 16px;
+      text-align: center;
+      border-bottom: 2px solid #e2e8f0;
+      white-space: nowrap;
+    }
+    .mtd-tbl td {
+      padding: 10px 16px;
+      text-align: right;
+      border-bottom: 1px solid #f1f5f9;
+      color: #1e293b;
+      white-space: nowrap;
+    }
+    .mtd-tbl td:first-child { text-align: left; font-weight: 600; color: #334155; }
+    .mtd-tbl tr:last-child td { border-bottom: none; }
+    .mtd-tbl tr:hover td { background: #f8fafc; }
+
+    .no-data {
+      text-align: center;
+      padding: 32px;
+      color: #94a3b8;
+      font-size: 13px;
+    }
+
+    /* ── Placeholder panel ───────────────────────────────────────────────── */
+    .placeholder-panel {
+      padding: 60px;
+      text-align: center;
+      color: #94a3b8;
+    }
+    .placeholder-panel p { font-size: 15px; margin-bottom: 8px; }
+    .placeholder-panel small { font-size: 12px; }
+
+    /* ── Responsive ──────────────────────────────────────────────────────── */
+    @media (max-width: 640px) {
+      #main-content { padding: 16px 14px 32px; }
+      .site-header { padding: 16px 16px 0; }
+      .site-header h1 { font-size: 17px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Loading overlay -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <span class="loading-text">데이터 로딩 중…</span>
+</div>
+
+<!-- Error banner (sticky) -->
+<div id="error-banner"></div>
+
+<!-- Site header -->
+<header class="site-header">
+  <div class="site-header-top">
+    <div>
+      <h1>CRM 해지방어/재구독 대시보드</h1>
+    </div>
+  </div>
+  <nav class="tab-nav" id="tab-nav" aria-label="대시보드 탭"></nav>
+</header>
+
+<!-- Dashboard panels (generated by JS) -->
+<main id="main-content"></main>
+
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONFIG
+   ─ 새 대시보드 추가: DASHBOARDS 배열에 항목 추가 후 RENDERERS에 렌더 함수 등록
+   ═══════════════════════════════════════════════════════════════════════════ */
+const CONFIG = {
+  // 자격증명은 config.js (gitignore) 에서 로드됩니다
+  // GitHub Pages 배포 시 GitHub Actions Secrets → config.js 자동 생성
+  CLIENT_ID:     (typeof CREDS !== 'undefined') ? CREDS.CLIENT_ID     : '',
+  CLIENT_SECRET: (typeof CREDS !== 'undefined') ? CREDS.CLIENT_SECRET : '',
+  REFRESH_TOKEN: (typeof CREDS !== 'undefined') ? CREDS.REFRESH_TOKEN : '',
+
+  REFRESH_HOUR_KST: 10,  // 매일 오전 10시 KST 자동 갱신
+
+  DASHBOARDS: [
+    {
+      id: 'resubscribe',
+      label: '재구독 유도',
+      spreadsheetId: '1v16UtA-2LBqzXjY6GR-6waKxrXnVBpgRcq-oChzsUsY',
+      sheetName: '[재구독] 자동화 - 대시보드',
+      ranges: { AJ: 'A:J', NQ: 'N:Q', SX: 'S:X', ZAE: 'Z:AE' },
+    },
+    // ── 해지방어 대시보드 추가 예시 ────────────────────────────────────────
+    // {
+    //   id: 'churn-defense',
+    //   label: '해지방어',
+    //   spreadsheetId: 'NEW_SPREADSHEET_ID',
+    //   sheetName: '시트명',
+    //   ranges: { /* 필요한 범위 지정 */ },
+    // },
+  ],
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   STATE
+   ═══════════════════════════════════════════════════════════════════════════ */
+const STATE = {
+  charts: {},        // { [dashboardId]: { gauges: {}, daily, weekly, monthly } }
+  activeTab: null,
+  accessToken: null, // Bearer token (refresh_token으로 자동 발급)
+  tokenExpiry: 0,    // epoch ms
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   UTILITIES
+   ═══════════════════════════════════════════════════════════════════════════ */
+function toNum(v) {
+  const n = parseFloat(v);
+  return isNaN(n) ? 0 : n;
+}
+
+function fmtPct(v) {
+  if (v === null || v === undefined || v === '') return '-';
+  const n = parseFloat(v);
+  if (isNaN(n)) return String(v);
+  return n.toFixed(2) + '%';
+}
+
+function fmtCount(v) {
+  if (v === null || v === undefined || v === '') return '-';
+  const n = parseFloat(v);
+  if (isNaN(n)) return String(v);
+  return n.toLocaleString('ko-KR');
+}
+
+function fmtVal(v, decimals = 2) {
+  if (v === null || v === undefined || v === '') return '-';
+  const n = parseFloat(v);
+  if (isNaN(n)) return String(v);
+  return n.toFixed(decimals);
+}
+
+function gaugeColor(pct) {
+  if (pct >= 0.75) return '#10b981';
+  if (pct >= 0.50) return '#f59e0b';
+  return '#ef4444';
+}
+
+function showLoading() {
+  document.getElementById('loading-overlay').classList.remove('hidden');
+}
+function hideLoading() {
+  document.getElementById('loading-overlay').classList.add('hidden');
+}
+function showError(msg) {
+  const el = document.getElementById('error-banner');
+  el.textContent = '⚠ 데이터 로드 실패: ' + msg;
+  el.classList.add('visible');
+}
+function hideError() {
+  document.getElementById('error-banner').classList.remove('visible');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GAUGE TEXT PLUGIN (Chart.js global plugin)
+   ═══════════════════════════════════════════════════════════════════════════ */
+Chart.register({
+  id: 'gaugeText',
+  afterDraw(chart, _args, opts) {
+    if (!opts || opts.value === undefined) return;
+    const { ctx, chartArea: ca } = chart;
+    const cx = (ca.left + ca.right) / 2;
+    // Center of doughnut circle — for aspectRatio:2 half-doughnut this sits
+    // near the bottom of the chartArea
+    const cy = ca.bottom - (ca.bottom - ca.top) * 0.18;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = 'bold 18px "Noto Sans KR", sans-serif';
+    ctx.fillStyle = opts.color || '#1e293b';
+    ctx.fillText(opts.value, cx, cy);
+    ctx.restore();
+  },
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GOOGLE SHEETS API — batchGet
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function fetchDashboardData(dashboard) {
+  const rangeParams = Object.values(dashboard.ranges)
+    .map(r => 'ranges=' + encodeURIComponent(dashboard.sheetName + '!' + r))
+    .join('&');
+
+  const url = [
+    'https://sheets.googleapis.com/v4/spreadsheets/',
+    dashboard.spreadsheetId,
+    '/values:batchGet?',
+    rangeParams,
+    '&valueRenderOption=UNFORMATTED_VALUE',
+    '&dateTimeRenderOption=FORMATTED_STRING',
+  ].join('');
+
+  const res = await fetch(url, {
+    headers: { 'Authorization': 'Bearer ' + STATE.accessToken },
+  });
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error('HTTP ' + res.status + (txt ? ' — ' + txt.slice(0, 150) : ''));
+  }
+
+  const json = await res.json();
+  const keys = Object.keys(dashboard.ranges);
+  const result = {};
+  keys.forEach((k, i) => {
+    result[k] = (json.valueRanges[i] && json.valueRanges[i].values) || [];
+  });
+  return result;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DATA PARSERS — 재구독 유도 대시보드
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** A:J → 기간별 CRM 지표 */
+function parseAJ(rows) {
+  if (!rows || rows.length <= 1) return [];
+  return rows.slice(1)
+    .filter(r => r && r[1] != null && r[1] !== '')
+    .map(r => ({
+      seq:          toNum(r[0]),
+      period:       String(r[1] ?? ''),
+      coverage:     toNum(r[2]),
+      contribution: toNum(r[3]),
+      incrementPct: toNum(r[4]),
+      crmConvert:   toNum(r[5]),
+      convertIncr:  toNum(r[6]),
+      totalSubs:    toNum(r[7]),
+      cancelType:   String(r[8] ?? ''),
+      progress:     toNum(r[9]),
+    }));
+}
+
+/** N:Q → 조회 기준 헤더 정보 (1행 사용) */
+function parseNQ(rows) {
+  if (!rows || rows.length <= 1) return null;
+  const r = rows[1];
+  if (!r) return null;
+  return {
+    refDate:   r[0] ?? '',
+    period:    r[1] ?? '',
+    startDate: r[2] ?? '',
+    endDate:   r[3] ?? '',
+  };
+}
+
+/** S:X → 일별 성과 (대시보드 표시 = Y 필터) */
+function parseSX(rows) {
+  if (!rows || rows.length <= 1) return [];
+  return rows.slice(1)
+    .filter(r => r && String(r[0] ?? '').trim().toUpperCase() === 'Y' && r[1] != null && r[1] !== '')
+    .map(r => ({
+      date:         String(r[1] ?? ''),
+      contribution: toNum(r[2]),
+      increment:    toNum(r[3]),
+      iConvert:     toNum(r[4]),
+      subs:         toNum(r[5]),
+    }));
+}
+
+/** Z:AE → MTD 요약 테이블 */
+function parseZAE(rows) {
+  if (!rows || rows.length <= 1) return [];
+  return rows.slice(1)
+    .filter(r => r && r[0] != null && r[0] !== '')
+    .map(r => ({
+      cancelType: String(r[0] ?? ''),
+      impression: r[1],
+      ctr:        r[2],
+      tgCvr:      r[3],
+      iCvr:       r[4],
+      iConvert:   r[5],
+    }));
+}
+
+/** 주차 데이터 여부 판별 */
+function isWeekly(period) {
+  return /주차|[Ww]\d|week/i.test(String(period));
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CHART HELPERS
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+function createGauge(canvasId, value, maxValue, unit) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return null;
+  const pct = Math.min(Math.max(value / maxValue, 0), 1);
+  const color = gaugeColor(pct);
+  const valText = (Number.isInteger(value) ? value : value.toFixed(1)) + unit;
+
+  return new Chart(canvas, {
+    type: 'doughnut',
+    data: {
+      datasets: [{
+        data: [pct, 1 - pct],
+        backgroundColor: [color, '#e2e8f0'],
+        borderWidth: 0,
+        borderRadius: 3,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      aspectRatio: 2,
+      circumference: 180,
+      rotation: -90,
+      cutout: '74%',
+      animation: { duration: 700, easing: 'easeInOutQuart' },
+      plugins: {
+        legend:    { display: false },
+        tooltip:   { enabled: false },
+        gaugeText: { value: valText, color },
+      },
+    },
+  });
+}
+
+function updateGauge(chart, value, maxValue, unit) {
+  if (!chart) return;
+  const pct = Math.min(Math.max(value / maxValue, 0), 1);
+  const color = gaugeColor(pct);
+  const valText = (Number.isInteger(value) ? value : value.toFixed(1)) + unit;
+  chart.data.datasets[0].data = [pct, 1 - pct];
+  chart.data.datasets[0].backgroundColor[0] = color;
+  chart.options.plugins.gaugeText.value = valText;
+  chart.options.plugins.gaugeText.color = color;
+  chart.update('active');
+}
+
+function createLineChart(canvasId, datasets, labels) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return null;
+  return new Chart(canvas, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { usePointStyle: true, pointStyleWidth: 8, font: { size: 12 }, padding: 16 },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y != null ? ctx.parsed.y.toFixed(2) : '-'),
+          },
+        },
+      },
+      scales: {
+        x: {
+          grid: { color: '#f1f5f9' },
+          ticks: { maxRotation: 40, font: { size: 11 }, color: '#64748b' },
+        },
+        y: {
+          grid: { color: '#f1f5f9' },
+          ticks: { font: { size: 11 }, color: '#64748b' },
+          beginAtZero: false,
+        },
+      },
+      elements: {
+        point: { radius: 3, hoverRadius: 5, borderWidth: 2 },
+        line:  { tension: 0.35, borderWidth: 2 },
+      },
+    },
+  });
+}
+
+function updateLineChart(chart, labels, datasets) {
+  if (!chart) return;
+  chart.data.labels = labels;
+  datasets.forEach((ds, i) => {
+    if (chart.data.datasets[i]) chart.data.datasets[i].data = ds.data;
+  });
+  chart.update('active');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MTD TABLE RENDERER (shared)
+   ═══════════════════════════════════════════════════════════════════════════ */
+function renderMTDTable(dashId, rows) {
+  const tbody = document.getElementById('mtd-tbody-' + dashId);
+  if (!tbody) return;
+  if (!rows || rows.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="6" class="no-data">데이터 없음</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => '<tr>' +
+    '<td>' + (r.cancelType || '-') + '</td>' +
+    '<td>' + fmtCount(r.impression) + '</td>' +
+    '<td>' + fmtPct(r.ctr) + '</td>' +
+    '<td>' + fmtPct(r.tgCvr) + '</td>' +
+    '<td>' + fmtPct(r.iCvr) + '</td>' +
+    '<td>' + fmtCount(r.iConvert) + '</td>' +
+    '</tr>'
+  ).join('');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RENDER — 재구독 유도
+   ═══════════════════════════════════════════════════════════════════════════ */
+function renderResubscribe(raw) {
+  const id = 'resubscribe';
+
+  const ajData  = parseAJ(raw.AJ);
+  const nqData  = parseNQ(raw.NQ);
+  const sxData  = parseSX(raw.SX);
+  const zaeData = parseZAE(raw.ZAE);
+
+  // Debug: log first few rows to verify column mapping
+  console.group('[재구독] 데이터 확인');
+  console.log('A:J 샘플 (상위 3행):', ajData.slice(0, 3));
+  console.log('S:X 일별 샘플 (상위 3행):', sxData.slice(0, 3));
+  console.log('Z:AE MTD 샘플:', zaeData.slice(0, 3));
+  console.groupEnd();
+
+  // ── Panel header ─────────────────────────────────────────────────────────
+  const criteriaEl = document.getElementById(id + '-criteria');
+  if (criteriaEl && nqData) {
+    criteriaEl.textContent =
+      '집계 기준: ' + (nqData.period || '') +
+      (nqData.startDate || nqData.endDate
+        ? ' (' + nqData.startDate + ' ~ ' + nqData.endDate + ')'
+        : '');
+  }
+
+  // ── MTD table ─────────────────────────────────────────────────────────────
+  renderMTDTable(id, zaeData);
+
+  // ── Gauge charts ─────────────────────────────────────────────────────────
+  // Use the last populated row in A:J
+  const lastRow = ajData.length > 0 ? ajData[ajData.length - 1] : null;
+  if (!STATE.charts[id]) STATE.charts[id] = { gauges: {} };
+
+  if (lastRow) {
+    const gauges = [
+      { key: 'contribution', value: lastRow.contribution, max: 100, unit: '%'  },
+      { key: 'increment',    value: lastRow.incrementPct, max: 20,  unit: '%p' },
+      { key: 'coverage',     value: lastRow.coverage,     max: 100, unit: '%'  },
+      { key: 'progress',     value: lastRow.progress,     max: 100, unit: '%'  },
+    ];
+    gauges.forEach(g => {
+      const cid = 'gauge-' + g.key + '-' + id;
+      if (STATE.charts[id].gauges[g.key]) {
+        updateGauge(STATE.charts[id].gauges[g.key], g.value, g.max, g.unit);
+      } else {
+        STATE.charts[id].gauges[g.key] = createGauge(cid, g.value, g.max, g.unit);
+      }
+    });
+  }
+
+  // ── Daily trend chart (S:X, Y-filtered) ──────────────────────────────────
+  {
+    const labels = sxData.map(r => r.date);
+    const dsIncrement = {
+      label: '증분%p',
+      data: sxData.map(r => r.increment),
+      borderColor: '#6366f1',
+      backgroundColor: 'rgba(99,102,241,0.07)',
+      fill: true,
+    };
+    const dsContrib = {
+      label: 'CRM 기여도',
+      data: sxData.map(r => r.contribution),
+      borderColor: '#10b981',
+      backgroundColor: 'rgba(16,185,129,0.07)',
+      fill: true,
+    };
+    if (STATE.charts[id].daily) {
+      updateLineChart(STATE.charts[id].daily, labels, [dsIncrement, dsContrib]);
+    } else {
+      STATE.charts[id].daily = createLineChart('chart-daily-' + id, [dsIncrement, dsContrib], labels);
+    }
+  }
+
+  // ── Weekly / Monthly trend charts (A:J split) ─────────────────────────────
+  const weeklyData  = ajData.filter(r => isWeekly(r.period));
+  const monthlyData = ajData.filter(r => !isWeekly(r.period));
+
+  // If regex cannot separate, log for manual inspection and fall back gracefully
+  if (ajData.length > 0 && weeklyData.length === 0 && monthlyData.length === 0) {
+    console.warn('[재구독] A:J 기간 형식 미인식. 전체 데이터를 주차 차트에 표시합니다. 예시:', ajData[0].period);
+  }
+
+  function makeTrendSets(data) {
+    return {
+      labels: data.map(r => r.period),
+      datasets: [
+        {
+          label: 'CRM 기여도',
+          data: data.map(r => r.contribution),
+          borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.07)', fill: true,
+        },
+        {
+          label: '증분%p',
+          data: data.map(r => r.incrementPct),
+          borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,0.07)', fill: true,
+        },
+        {
+          label: 'CRM 커버리지',
+          data: data.map(r => r.coverage),
+          borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.07)', fill: true,
+        },
+      ],
+    };
+  }
+
+  // Weekly chart — fallback to all A:J data if no weekly rows detected
+  {
+    const src = weeklyData.length > 0 ? weeklyData : ajData;
+    const t = makeTrendSets(src);
+    if (STATE.charts[id].weekly) {
+      updateLineChart(STATE.charts[id].weekly, t.labels, t.datasets);
+    } else {
+      STATE.charts[id].weekly = createLineChart('chart-weekly-' + id, t.datasets, t.labels);
+    }
+  }
+
+  // Monthly chart — only rendered if monthly rows exist
+  {
+    const t = makeTrendSets(monthlyData);
+    if (STATE.charts[id].monthly) {
+      updateLineChart(STATE.charts[id].monthly, t.labels, t.datasets);
+    } else {
+      STATE.charts[id].monthly = createLineChart('chart-monthly-' + id, t.datasets, t.labels);
+    }
+  }
+
+  // ── Last-refresh timestamp ────────────────────────────────────────────────
+  const el = document.getElementById(id + '-last-refresh');
+  if (el) el.textContent = '마지막 업데이트: ' + new Date().toLocaleString('ko-KR');
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RENDERER REGISTRY
+   새 대시보드 추가 시 renderXxx 함수를 여기에 등록
+   ═══════════════════════════════════════════════════════════════════════════ */
+const RENDERERS = {
+  'resubscribe':   renderResubscribe,
+  // 'churn-defense': renderChurnDefense,
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REFRESH
+   ═══════════════════════════════════════════════════════════════════════════ */
+async function refreshDashboard(dashboard) {
+  try {
+    await ensureValidToken();
+    const raw = await fetchDashboardData(dashboard);
+    const render = RENDERERS[dashboard.id];
+    if (render) render(raw);
+  } catch (err) {
+    console.error('[' + dashboard.id + '] 갱신 실패:', err);
+    throw err;  // bubble up to refreshAll
+  }
+}
+
+async function refreshAll(showSpinner) {
+  if (showSpinner) showLoading();
+  let lastErr = null;
+  await Promise.all(
+    CONFIG.DASHBOARDS.map(d =>
+      refreshDashboard(d).catch(e => { lastErr = e; })
+    )
+  );
+  if (showSpinner) hideLoading();
+  if (lastErr) showError(lastErr.message);
+  else hideError();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   DAILY SCHEDULE — 10:00 KST
+   ═══════════════════════════════════════════════════════════════════════════ */
+function scheduleNextDailyRefresh() {
+  const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const nowUTC = Date.now();
+  const nowKST = nowUTC + KST_OFFSET_MS;  // ms since epoch in "KST epoch"
+
+  // Build target: today 10:00 KST as UTC epoch ms
+  const todayMidnightKST = Math.floor(nowKST / 86400000) * 86400000;  // midnight KST
+  let targetKST = todayMidnightKST + CONFIG.REFRESH_HOUR_KST * 3600000;
+  if (targetKST <= nowKST) targetKST += 86400000;  // already past → tomorrow
+
+  const msUntil = targetKST - nowKST;
+  const targetUTC = targetKST - KST_OFFSET_MS;
+
+  console.log(
+    '[스케줄] 다음 자동 갱신: ' +
+    new Date(targetUTC).toLocaleString('ko-KR') +
+    ' (약 ' + Math.round(msUntil / 60000) + '분 후)'
+  );
+
+  setTimeout(() => {
+    refreshAll(false);
+    // Repeat every 24h thereafter (catches the case where the page stays open)
+    setInterval(() => refreshAll(false), 24 * 60 * 60 * 1000);
+  }, msUntil);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TAB SYSTEM
+   ═══════════════════════════════════════════════════════════════════════════ */
+function activateTab(id) {
+  STATE.activeTab = id;
+  document.querySelectorAll('.tab-btn').forEach(
+    btn => btn.classList.toggle('active', btn.dataset.tab === id)
+  );
+  document.querySelectorAll('.dashboard-panel').forEach(
+    panel => panel.classList.toggle('active', panel.id === 'panel-' + id)
+  );
+}
+
+/** HTML for 재구독 유도 panel */
+function buildResubscribePanel(dashboard) {
+  const id = dashboard.id;
+  return `
+<div id="panel-${id}" class="dashboard-panel">
+
+  <div class="panel-meta">
+    <span class="panel-criteria" id="${id}-criteria"></span>
+    <span class="panel-refresh">
+      <span class="refresh-dot"></span>
+      <span id="${id}-last-refresh">로딩 중…</span>
+    </span>
+  </div>
+
+  <!-- MTD 요약 -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-header"><h2>MTD 성과 요약</h2></div>
+    <div class="tbl-wrap">
+      <table class="mtd-tbl">
+        <thead>
+          <tr>
+            <th>진행상황</th>
+            <th>노출</th>
+            <th>CTR</th>
+            <th>TG CVR</th>
+            <th>iCVR</th>
+            <th>i-Convert</th>
+          </tr>
+        </thead>
+        <tbody id="mtd-tbody-${id}">
+          <tr><td colspan="6" class="no-data">데이터 로딩 중…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 주요 지표 게이지 -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-header"><h2>주요 지표</h2></div>
+    <div class="card-body">
+      <div class="gauge-grid">
+        <div class="card gauge-wrap">
+          <canvas id="gauge-contribution-${id}"></canvas>
+          <p class="gauge-lbl">CRM 기여도</p>
+        </div>
+        <div class="card gauge-wrap">
+          <canvas id="gauge-increment-${id}"></canvas>
+          <p class="gauge-lbl">증분 %p</p>
+        </div>
+        <div class="card gauge-wrap">
+          <canvas id="gauge-coverage-${id}"></canvas>
+          <p class="gauge-lbl">CRM 커버리지</p>
+        </div>
+        <div class="card gauge-wrap">
+          <canvas id="gauge-progress-${id}"></canvas>
+          <p class="gauge-lbl">진척률</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 일별 추이 -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-header"><h2>일별 CRM 성과 추이</h2></div>
+    <div class="chart-body">
+      <canvas id="chart-daily-${id}"></canvas>
+    </div>
+  </div>
+
+  <!-- 주차별 추이 -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-header"><h2>주차별 CRM 성과 추이</h2></div>
+    <div class="chart-body">
+      <canvas id="chart-weekly-${id}"></canvas>
+    </div>
+  </div>
+
+  <!-- 월별 추이 -->
+  <div class="card" style="margin-bottom:18px">
+    <div class="card-header"><h2>월별 CRM 성과 추이</h2></div>
+    <div class="chart-body">
+      <canvas id="chart-monthly-${id}"></canvas>
+    </div>
+  </div>
+
+</div>`;
+}
+
+/** Generic placeholder for dashboards without a custom renderer yet */
+function buildPlaceholderPanel(dashboard) {
+  return `
+<div id="panel-${dashboard.id}" class="dashboard-panel">
+  <div class="card">
+    <div class="placeholder-panel">
+      <p>${dashboard.label} 대시보드 준비 중</p>
+      <small>RENDERERS에 렌더 함수를 등록하면 활성화됩니다.</small>
+    </div>
+  </div>
+</div>`;
+}
+
+/** Panel HTML builders keyed by dashboard id */
+const PANEL_BUILDERS = {
+  'resubscribe': buildResubscribePanel,
+  // 'churn-defense': buildChurnDefensePanel,
+};
+
+function initTabs() {
+  const nav  = document.getElementById('tab-nav');
+  const main = document.getElementById('main-content');
+
+  CONFIG.DASHBOARDS.forEach(dashboard => {
+    // Tab button
+    const btn = document.createElement('button');
+    btn.className = 'tab-btn';
+    btn.dataset.tab = dashboard.id;
+    btn.textContent = dashboard.label;
+    btn.addEventListener('click', () => activateTab(dashboard.id));
+    nav.appendChild(btn);
+
+    // Panel
+    const builder = PANEL_BUILDERS[dashboard.id] || buildPlaceholderPanel;
+    main.insertAdjacentHTML('beforeend', builder(dashboard));
+  });
+
+  if (CONFIG.DASHBOARDS.length > 0) {
+    activateTab(CONFIG.DASHBOARDS[0].id);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   OAUTH — refresh_token으로 자동 액세스 토큰 발급 (로그인 불필요)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/** refresh_token → access_token 교환 */
+async function fetchAccessToken() {
+  const params = new URLSearchParams({
+    grant_type:    'refresh_token',
+    refresh_token: CONFIG.REFRESH_TOKEN,
+    client_id:     CONFIG.CLIENT_ID,
+    client_secret: CONFIG.CLIENT_SECRET,
+  });
+
+  const res = await fetch('https://oauth2.googleapis.com/token', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body:    params.toString(),
+  });
+
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error('토큰 발급 실패 ' + res.status + ': ' + txt.slice(0, 120));
+  }
+
+  const json = await res.json();
+  STATE.accessToken = json.access_token;
+  STATE.tokenExpiry = Date.now() + (json.expires_in - 60) * 1000; // 만료 1분 전 갱신
+}
+
+/** API 호출 전 토큰 유효성 확인 — 만료됐으면 재발급 */
+async function ensureValidToken() {
+  if (!STATE.accessToken || Date.now() >= STATE.tokenExpiry) {
+    await fetchAccessToken();
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BOOTSTRAP
+   ═══════════════════════════════════════════════════════════════════════════ */
+document.addEventListener('DOMContentLoaded', async () => {
+  initTabs();
+  await refreshAll(true);
+  scheduleNextDailyRefresh();
+});
+</script>
+</body>
+</html>
