@@ -1,0 +1,5 @@
+{
+  "buildCommand": "printf 'const CREDS = { CLIENT_ID: \"%s\", CLIENT_SECRET: \"%s\", REFRESH_TOKEN: \"%s\" };' \"$CLIENT_ID\" \"$CLIENT_SECRET\" \"$REFRESH_TOKEN\" > config.js",
+  "outputDirectory": ".",
+  "installCommand": ""
+}
